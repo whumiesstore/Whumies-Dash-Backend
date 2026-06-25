@@ -1,6 +1,7 @@
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 import { createAuthToken } from "../utils/authToken.js";
+import { createDefaultPrimaryFirm } from "./firm.service.js";
 
 export async function registerUser({ email, password }) {
     const existingUser = await User.findOne({ email });
@@ -69,5 +70,15 @@ export async function completeUserProfile({
 
     await user.save();
 
-    return user.toSafeObject();
+    const defaultFirm = await createDefaultPrimaryFirm({
+        userId: user._id,
+        firmName: businessName,
+        sellOnAmazon,
+        sellOnFlipkart,
+    });
+
+    return {
+        user: user.toSafeObject(),
+        defaultFirm,
+    };
 }

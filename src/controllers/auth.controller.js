@@ -54,7 +54,7 @@ export const login = asyncHandler(async (req, res) => {
 export const completeProfile = asyncHandler(async (req, res) => {
     const { name, businessName, sellOnAmazon, sellOnFlipkart } = req.body;
 
-    const user = await completeUserProfile({
+    const { user, defaultFirm } = await completeUserProfile({
         userId: req.user._id,
         name,
         businessName,
@@ -67,6 +67,7 @@ export const completeProfile = asyncHandler(async (req, res) => {
             200,
             {
                 user,
+                defaultFirm,
                 needsOnboarding: false,
             },
             "Profile completed successfully",
