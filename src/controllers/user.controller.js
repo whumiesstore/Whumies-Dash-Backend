@@ -8,7 +8,7 @@ import {
 export const updateProfile = asyncHandler(async (req, res) => {
     const { name, businessName, sellOnAmazon, sellOnFlipkart } = req.body;
 
-    const user = await updateUserProfile({
+    const { user, defaultFirm } = await updateUserProfile({
         userId: req.user._id,
         name,
         businessName,
@@ -21,6 +21,7 @@ export const updateProfile = asyncHandler(async (req, res) => {
             200,
             {
                 user,
+                defaultFirm,
                 needsOnboarding: !user.isProfileComplete,
             },
             "Profile updated successfully",

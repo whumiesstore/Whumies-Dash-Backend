@@ -1,5 +1,6 @@
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
+import { createDefaultPrimaryFirm } from "./firm.service.js";
 
 export async function updateUserProfile({
     userId,
@@ -13,6 +14,8 @@ export async function updateUserProfile({
     if (!user) {
         throw new ApiError(404, "User not found.");
     }
+
+    const wasProfileCompleteBeforeUpdate = Boolean(user.isProfileComplete);
 
     if (name !== undefined) {
         user.name = name;
@@ -44,7 +47,24 @@ export async function updateUserProfile({
 
     await user.save();
 
-    return user.toSafeObject();
+    let defaultFirm = null;
+
+    const becameProfileCompleteNow =
+        !wasProfileCompleteBeforeUpdate && user.isProfileComplete;
+
+    if (becameProfileCompleteNow) {
+        defaultFirm = await createDefaultPrimaryFirm({
+            userId: user._id,
+            firmName: user.businessName,
+            sellOnAmazon: user.marketplaces?.amazon,
+            sellOnFlipkart: user.marketplaces?.flipkart,
+        });
+    }
+
+    return {
+        user: user.toSafeObject(),
+        defaultFirm,
+    };
 }
 
 export async function changeUserPassword({
