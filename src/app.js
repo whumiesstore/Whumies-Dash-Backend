@@ -10,6 +10,7 @@ import healthRoutes from "./routes/health.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import firmRoutes from "./routes/firm.routes.js";
+import amazonReportRoutes from "./routes/amazonReport.routes.js";
 
 import { notFoundMiddleware } from "./middlewares/notFound.middleware.js";
 import { errorMiddleware } from "./middlewares/error.middleware.js";
@@ -30,6 +31,7 @@ app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/firms", firmRoutes);
+app.use("/api/reports", amazonReportRoutes);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
