@@ -56,8 +56,6 @@ export async function updateUserProfile({
         defaultFirm = await createDefaultPrimaryFirm({
             userId: user._id,
             firmName: user.businessName,
-            sellOnAmazon: user.marketplaces?.amazon,
-            sellOnFlipkart: user.marketplaces?.flipkart,
         });
     }
 

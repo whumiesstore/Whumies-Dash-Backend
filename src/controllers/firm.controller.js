@@ -31,14 +31,12 @@ export const getFirm = asyncHandler(async (req, res) => {
 });
 
 export const createFirm = asyncHandler(async (req, res) => {
-    const { firmName, isPrimary, sellOnAmazon, sellOnFlipkart } = req.body;
+    const { firmName, isPrimary } = req.body;
 
     const firm = await createUserFirm({
         userId: req.user._id,
         firmName,
         isPrimary,
-        sellOnAmazon,
-        sellOnFlipkart,
     });
 
     return res
@@ -47,15 +45,13 @@ export const createFirm = asyncHandler(async (req, res) => {
 });
 
 export const updateFirm = asyncHandler(async (req, res) => {
-    const { firmName, isPrimary, sellOnAmazon, sellOnFlipkart } = req.body;
+    const { firmName, isPrimary } = req.body;
 
     const firm = await updateUserFirm({
         userId: req.user._id,
         firmId: req.params.firmId,
         firmName,
         isPrimary,
-        sellOnAmazon,
-        sellOnFlipkart,
     });
 
     return res

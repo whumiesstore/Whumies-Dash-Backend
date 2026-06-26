@@ -14,14 +14,6 @@ export const createFirmValidator = [
         .optional()
         .isBoolean()
         .withMessage("Primary firm status must be true or false."),
-
-    body("sellOnAmazon")
-        .isBoolean()
-        .withMessage("Please specify whether this firm sells on Amazon."),
-
-    body("sellOnFlipkart")
-        .isBoolean()
-        .withMessage("Please specify whether this firm sells on Flipkart."),
 ];
 
 export const updateFirmValidator = [
@@ -37,14 +29,4 @@ export const updateFirmValidator = [
         .optional()
         .isBoolean()
         .withMessage("Primary firm status must be true or false."),
-
-    body("sellOnAmazon")
-        .optional()
-        .isBoolean()
-        .withMessage("Amazon selling status must be true or false."),
-
-    body("sellOnFlipkart")
-        .optional()
-        .isBoolean()
-        .withMessage("Flipkart selling status must be true or false."),
 ];

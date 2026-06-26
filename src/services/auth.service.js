@@ -73,8 +73,6 @@ export async function completeUserProfile({
     const defaultFirm = await createDefaultPrimaryFirm({
         userId: user._id,
         firmName: businessName,
-        sellOnAmazon,
-        sellOnFlipkart,
     });
 
     return {

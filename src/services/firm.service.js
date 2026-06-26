@@ -7,18 +7,12 @@ function toSafeFirmObject(firm) {
         id: firm._id,
         firmName: firm.firmName,
         isPrimary: firm.isPrimary,
-        marketplaces: firm.marketplaces,
         createdAt: firm.createdAt,
         updatedAt: firm.updatedAt,
     };
 }
 
-export async function createDefaultPrimaryFirm({
-    userId,
-    firmName,
-    sellOnAmazon,
-    sellOnFlipkart,
-}) {
+export async function createDefaultPrimaryFirm({ userId, firmName }) {
     const existingPrimaryFirm = await Firm.findOne({
         owner: userId,
         isPrimary: true,
@@ -32,10 +26,6 @@ export async function createDefaultPrimaryFirm({
         owner: userId,
         firmName,
         isPrimary: true,
-        marketplaces: {
-            amazon: Boolean(sellOnAmazon),
-            flipkart: Boolean(sellOnFlipkart),
-        },
     });
 
     return toSafeFirmObject(firm);
@@ -73,8 +63,6 @@ export async function createUserFirm({
     userId,
     firmName,
     isPrimary = false,
-    sellOnAmazon,
-    sellOnFlipkart,
 }) {
     const existingFirm = await Firm.findOne({
         owner: userId,
@@ -102,10 +90,6 @@ export async function createUserFirm({
         owner: userId,
         firmName,
         isPrimary: Boolean(isPrimary),
-        marketplaces: {
-            amazon: Boolean(sellOnAmazon),
-            flipkart: Boolean(sellOnFlipkart),
-        },
     });
 
     return toSafeFirmObject(firm);
@@ -116,8 +100,6 @@ export async function updateUserFirm({
     firmId,
     firmName,
     isPrimary,
-    sellOnAmazon,
-    sellOnFlipkart,
 }) {
     if (!mongoose.Types.ObjectId.isValid(firmId)) {
         throw new ApiError(400, "Invalid firm ID.");
@@ -146,20 +128,6 @@ export async function updateUserFirm({
         }
 
         firm.firmName = firmName;
-    }
-
-    if (sellOnAmazon !== undefined || sellOnFlipkart !== undefined) {
-        firm.marketplaces = {
-            amazon:
-                sellOnAmazon !== undefined
-                    ? Boolean(sellOnAmazon)
-                    : Boolean(firm.marketplaces?.amazon),
-
-            flipkart:
-                sellOnFlipkart !== undefined
-                    ? Boolean(sellOnFlipkart)
-                    : Boolean(firm.marketplaces?.flipkart),
-        };
     }
 
     if (isPrimary === true && !firm.isPrimary) {

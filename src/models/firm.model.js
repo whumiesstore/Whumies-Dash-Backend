@@ -19,17 +19,6 @@ const firmSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
-
-        marketplaces: {
-            amazon: {
-                type: Boolean,
-                default: false,
-            },
-            flipkart: {
-                type: Boolean,
-                default: false,
-            },
-        },
     },
     {
         timestamps: true,
