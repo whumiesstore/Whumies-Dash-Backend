@@ -13,7 +13,6 @@ const amazonReportOrderRowSchema = new mongoose.Schema(
         orderItemId: { type: String, default: "" },
 
         orderDate: { type: Date, default: null },
-        shipDate: { type: Date, default: null },
 
         sku: { type: String, required: true, index: true },
         asin: { type: String, default: "" },
@@ -30,13 +29,18 @@ const amazonReportOrderRowSchema = new mongoose.Schema(
         itemPromotionDiscount: { type: Number, default: 0 },
         shipPromotionDiscount: { type: Number, default: 0 },
 
+        orderStatus: { type: String, default: "" },
         itemStatus: { type: String, default: "" },
         fulfillment: { type: String, default: "" },
+        fulfilledBy: { type: String, default: "" },
         salesChannel: { type: String, default: "" },
 
         shipCity: { type: String, default: "" },
         shipState: { type: String, default: "" },
         shipPostalCode: { type: String, default: "" },
+
+        isReplacementOrder: { type: Boolean, default: "" },
+        originalOrderId: { type: String, default: "" },
 
         rawRow: {
             type: mongoose.Schema.Types.Mixed,

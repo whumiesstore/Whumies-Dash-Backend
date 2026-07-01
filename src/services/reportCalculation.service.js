@@ -270,9 +270,12 @@ export function calculateAmazonReport({ orderRows, paymentRows, skuCosts }) {
             (total, row) => total + Number(row.quantity || 0),
             0,
         ),
-        cancelledOrders: orderRows.filter((row) =>
-            String(row.itemStatus || "").toLowerCase().includes("cancel"),
-        ).length,
+        cancelledOrders: orderRows.filter((row) => {
+            const orderStatus = String(row.orderStatus || "").toLowerCase();
+            const itemStatus = String(row.itemStatus || "").toLowerCase();
+
+            return orderStatus.includes("cancel") || itemStatus.includes("cancel");
+        }).length,
         returnedOrders: 0,
         uniqueSkus: new Set(validOrderRows.map((row) => row.sku)).size,
     };

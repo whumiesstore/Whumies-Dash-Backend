@@ -10,7 +10,6 @@ const ORDER_ALIASES = {
     orderId: ["amazon-order-id", "order-id", "amazon-order-number"],
     orderItemId: ["order-item-id", "order-item-code"],
     orderDate: ["purchase-date", "order-date", "date"],
-    shipDate: ["ship-date", "shipment-date"],
     sku: ["sku", "seller-sku"],
     asin: ["asin"],
     productName: ["product-name", "item-name", "title"],
@@ -23,13 +22,38 @@ const ORDER_ALIASES = {
     giftWrapTax: ["gift-wrap-tax"],
     itemPromotionDiscount: ["item-promotion-discount"],
     shipPromotionDiscount: ["ship-promotion-discount"],
-    itemStatus: ["item-status", "order-status", "status"],
+    orderStatus: ["order-status", "status"],
+    itemStatus: ["item-status"],
     fulfillment: ["fulfillment-channel", "fulfillment"],
+    fulfilledBy: ["fulfilled-by"],
     salesChannel: ["sales-channel", "marketplace"],
     shipCity: ["ship-city"],
     shipState: ["ship-state", "ship-state-name", "state"],
     shipPostalCode: ["ship-postal-code", "postal-code", "pincode"],
+    isReplacementOrder: ["is-replacement-order"],
+    originalOrderId: ["original-order-id"],
 };
+
+function getMonthKey(date) {
+    if (!date) return "";
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+
+    return `${year}-${month}`;
+}
+
+function formatDateForMessage(date) {
+    if (!date) return "";
+
+    return date.toISOString().slice(0, 10);
+}
+
+function parseBooleanValue(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+
+    return ["true", "yes", "y", "1"].includes(normalized);
+}
 
 function getRequiredColumnErrors(firstRow) {
     const required = [
@@ -88,6 +112,11 @@ export function parseAmazonOrdersRows(rows, reportMonth) {
     const duplicateKeys = new Set();
     const seenKeys = new Set();
 
+    let minOrderDate = null;
+    let maxOrderDate = null;
+    const detectedOrderMonths = new Set();
+    let validDateRowCount = 0;
+
     rows.forEach((row, index) => {
         const orderId = String(
             pickValue(row, ORDER_ALIASES.orderId),
@@ -110,6 +139,20 @@ export function parseAmazonOrdersRows(rows, reportMonth) {
             return;
         }
 
+        if (orderDate) {
+            validDateRowCount += 1;
+
+            if (!minOrderDate || orderDate < minOrderDate) {
+                minOrderDate = orderDate;
+            }
+
+            if (!maxOrderDate || orderDate > maxOrderDate) {
+                maxOrderDate = orderDate;
+            }
+
+            detectedOrderMonths.add(getMonthKey(orderDate));
+        }
+
         if (!isDateInsideReportMonth(orderDate, reportMonth)) {
             warnings.push({
                 row: index + 2,
@@ -118,13 +161,20 @@ export function parseAmazonOrdersRows(rows, reportMonth) {
             return;
         }
 
+        const orderStatus = String(
+            pickValue(row, ORDER_ALIASES.orderStatus),
+        ).trim();
+
         const itemStatus = String(
             pickValue(row, ORDER_ALIASES.itemStatus),
         ).trim();
 
-        const normalizedStatus = itemStatus.toLowerCase();
+        const normalizedOrderStatus = orderStatus.toLowerCase();
+        const normalizedItemStatus = itemStatus.toLowerCase();
 
-        const isCancelled = normalizedStatus.includes("cancel");
+        const isCancelled =
+            normalizedOrderStatus.includes("cancel") ||
+            normalizedItemStatus.includes("cancel");
 
         const rowKey = `${orderId}-${orderItemId || sku}`;
 
@@ -139,7 +189,6 @@ export function parseAmazonOrdersRows(rows, reportMonth) {
             orderId,
             orderItemId,
             orderDate,
-            shipDate: parseDateValue(pickValue(row, ORDER_ALIASES.shipDate)),
             sku,
             asin: String(pickValue(row, ORDER_ALIASES.asin)).trim(),
             productName: String(pickValue(row, ORDER_ALIASES.productName)).trim(),
@@ -156,12 +205,20 @@ export function parseAmazonOrdersRows(rows, reportMonth) {
             shipPromotionDiscount: parseNumber(
                 pickValue(row, ORDER_ALIASES.shipPromotionDiscount),
             ),
+            orderStatus,
             itemStatus,
             fulfillment: String(pickValue(row, ORDER_ALIASES.fulfillment)).trim(),
+            fulfilledBy: String(pickValue(row, ORDER_ALIASES.fulfilledBy)).trim(),
             salesChannel: String(pickValue(row, ORDER_ALIASES.salesChannel)).trim(),
             shipCity: String(pickValue(row, ORDER_ALIASES.shipCity)).trim(),
             shipState: String(pickValue(row, ORDER_ALIASES.shipState)).trim(),
             shipPostalCode: String(pickValue(row, ORDER_ALIASES.shipPostalCode)).trim(),
+            isReplacementOrder: parseBooleanValue(
+                pickValue(row, ORDER_ALIASES.isReplacementOrder),
+            ),
+            originalOrderId: String(
+                pickValue(row, ORDER_ALIASES.originalOrderId),
+            ).trim(),
             rawRow: row,
         });
     });
@@ -169,10 +226,48 @@ export function parseAmazonOrdersRows(rows, reportMonth) {
     const validSaleRows = parsedRows.filter((row) => row.quantity > 0);
 
     if (!validSaleRows.length) {
+        const detectedMonths = Array.from(detectedOrderMonths).filter(Boolean);
+
+        if (
+            validDateRowCount > 0 &&
+            detectedMonths.length === 1 &&
+            detectedMonths[0] !== reportMonth
+        ) {
+            throw new ApiError(400, "Orders report validation failed", [
+                {
+                    field: "ordersFile",
+                    code: "REPORT_MONTH_MISMATCH",
+                    message: `No valid sale rows found for selected report month ${reportMonth}. The uploaded orders file appears to contain orders from ${detectedMonths[0]}.`,
+                    selectedReportMonth: reportMonth,
+                    detectedReportMonth: detectedMonths[0],
+                    minOrderDate: formatDateForMessage(minOrderDate),
+                    maxOrderDate: formatDateForMessage(maxOrderDate),
+                },
+            ]);
+        }
+
+        if (validDateRowCount > 0 && detectedMonths.length > 1) {
+            throw new ApiError(400, "Orders report validation failed", [
+                {
+                    field: "ordersFile",
+                    code: "REPORT_MONTH_MISMATCH_MULTIPLE_MONTHS",
+                    message: `No valid sale rows found for selected report month ${reportMonth}. The uploaded orders file contains orders from multiple months: ${detectedMonths.join(", ")}.`,
+                    selectedReportMonth: reportMonth,
+                    detectedReportMonths: detectedMonths,
+                    minOrderDate: formatDateForMessage(minOrderDate),
+                    maxOrderDate: formatDateForMessage(maxOrderDate),
+                },
+            ]);
+        }
+
         throw new ApiError(400, "Orders report validation failed", [
             {
                 field: "ordersFile",
+                code: "NO_VALID_SALE_ROWS",
                 message: "No valid sale rows found in orders report.",
+                selectedReportMonth: reportMonth,
+                minOrderDate: formatDateForMessage(minOrderDate),
+                maxOrderDate: formatDateForMessage(maxOrderDate),
             },
         ]);
     }
