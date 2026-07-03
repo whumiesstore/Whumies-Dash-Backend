@@ -1,39 +1,10 @@
 import fs from "fs";
 import path from "path";
-import xlsx from "xlsx";
 import { parse } from "csv-parse/sync";
 import { ApiError } from "./ApiError.js";
 import { normalizeRowKeys } from "./normalizeHeader.js";
 
-function detectDelimiter(content, ext) {
-    const firstLine = content.split(/\r?\n/).find((line) => line.trim());
-
-    if (!firstLine) {
-        return ",";
-    }
-
-    const tabCount = (firstLine.match(/\t/g) || []).length;
-    const commaCount = (firstLine.match(/,/g) || []).length;
-    const semicolonCount = (firstLine.match(/;/g) || []).length;
-
-    if (ext === ".txt" && tabCount > 0) {
-        return "\t";
-    }
-
-    if (tabCount > commaCount && tabCount > semicolonCount) {
-        return "\t";
-    }
-
-    if (semicolonCount > commaCount) {
-        return ";";
-    }
-
-    return ",";
-}
-
-export function parseUploadedFile(filePath, originalName) {
-    const ext = path.extname(originalName).toLowerCase();
-
+function ensureFileExists(filePath) {
     if (!fs.existsSync(filePath)) {
         throw new ApiError(400, "Uploaded file not found.");
     }
@@ -43,59 +14,155 @@ export function parseUploadedFile(filePath, originalName) {
     if (!stats.size) {
         throw new ApiError(400, "Uploaded file is empty.");
     }
+}
 
-    try {
-        if (ext === ".csv" || ext === ".txt") {
-            const content = fs.readFileSync(filePath, "utf8");
-            const delimiter = detectDelimiter(content, ext);
+function ensureAllowedExtension(originalName, allowedExtensions, fileLabel) {
+    const ext = path.extname(originalName).toLowerCase();
 
-            const records = parse(content, {
-                columns: true,
-                skip_empty_lines: true,
-                bom: true,
-                trim: true,
-                delimiter,
-                relax_column_count: true,
-                relax_quotes: true,
-                quote: '"',
-            });
-
-            return records.map(normalizeRowKeys);
-        }
-
-        if (ext === ".xlsx" || ext === ".xls") {
-            const workbook = xlsx.readFile(filePath);
-            const firstSheetName = workbook.SheetNames[0];
-
-            if (!firstSheetName) {
-                throw new ApiError(400, "Spreadsheet has no sheets.");
-            }
-
-            const sheet = workbook.Sheets[firstSheetName];
-
-            const records = xlsx.utils.sheet_to_json(sheet, {
-                defval: "",
-                raw: false,
-            });
-
-            return records.map(normalizeRowKeys);
-        }
-
+    if (!allowedExtensions.includes(ext)) {
         throw new ApiError(
             400,
-            "Unsupported file type.",
-            "Please upload CSV, TXT, XLS, or XLSX file.",
+            `${fileLabel} file type is not supported.`,
+            `Please upload ${allowedExtensions.join(", ")} file.`,
         );
-    } catch (error) {
-        if (error instanceof ApiError) {
-            throw error;
-        }
+    }
 
-        throw new ApiError(400, "File parsing failed", [
+    return ext;
+}
+
+function readTextFile(filePath) {
+    return fs.readFileSync(filePath, "utf8");
+}
+
+function normalizeHeaderCell(value = "") {
+    return String(value)
+        .trim()
+        .replace(/^\uFEFF/, "")
+        .replace(/^"+|"+$/g, "")
+        .toLowerCase();
+}
+
+function splitCsvHeaderLine(line = "") {
+    try {
+        const parsed = parse(line, {
+            relax_quotes: true,
+            trim: true,
+            skip_empty_lines: true,
+        });
+
+        return parsed?.[0] || [];
+    } catch {
+        return line.split(",");
+    }
+}
+
+function findCsvHeaderLineIndexByColumns(content, expectedColumns = []) {
+    const lines = content.split(/\r?\n/);
+
+    return lines.findIndex((line) => {
+        if (!line.trim()) return false;
+
+        const columns = splitCsvHeaderLine(line).map(normalizeHeaderCell);
+
+        return expectedColumns.every((expectedColumn, index) => {
+            return columns[index] === normalizeHeaderCell(expectedColumn);
+        });
+    });
+}
+
+function parseDelimitedContent({
+    content,
+    delimiter,
+    fileLabel,
+    headerLineIndex = 0,
+}) {
+    const lines = content.split(/\r?\n/);
+    const usableContent = lines.slice(headerLineIndex).join("\n");
+    try {
+        const records = parse(usableContent, {
+            columns: true,
+            skip_empty_lines: true,
+            bom: true,
+            trim: true,
+            delimiter,
+            relax_column_count: true,
+            relax_quotes: true,
+            quote: '"',
+        });
+
+        return records.map(normalizeRowKeys);
+    } catch (error) {
+        throw new ApiError(400, `${fileLabel} parsing failed`, [
             {
                 field: "file",
                 message: error.message,
             },
         ]);
     }
+}
+
+/**
+ * Amazon Orders Report
+ * Amazon orders report is usually a .txt file with TAB separated values.
+ * Header starts with:
+ * amazon-order-id    merchant-order-id    purchase-date ...
+ */
+export function parseAmazonOrdersFile(filePath, originalName) {
+    ensureFileExists(filePath);
+
+    ensureAllowedExtension(
+        originalName,
+        [".txt"],
+        "Amazon orders report",
+    );
+
+    const content = readTextFile(filePath);
+
+    return parseDelimitedContent({
+        content,
+        delimiter: "\t",
+        fileLabel: "Amazon orders report",
+        headerLineIndex: 0,
+    });
+}
+
+/**
+ * Amazon Payments / Settlement Report
+ * Amazon payment CSV may contain instruction/summary lines at the top.
+ * Actual data starts from a row like:
+ * date/time,settlement id,type,order id,sku,...
+ */
+export function parseAmazonPaymentsFile(filePath, originalName) {
+    ensureFileExists(filePath);
+
+    ensureAllowedExtension(
+        originalName,
+        [".csv"],
+        "Amazon payments report",
+    );
+
+    const content = readTextFile(filePath);
+
+    const headerLineIndex = findCsvHeaderLineIndexByColumns(content, [
+        "date/time",
+        "settlement id",
+        "type",
+    ]);
+
+    if (headerLineIndex === -1) {
+        throw new ApiError(400, "Amazon payments report validation failed", [
+            {
+                field: "paymentsFile",
+                message:
+                    "Could not find Amazon payments data header row. Expected first columns: date/time, settlement id, type.",
+            },
+        ]);
+    }
+
+    return parseDelimitedContent({
+        content,
+        delimiter: ",",
+        fileLabel: "Amazon payments report",
+        headerLineIndex,
+    });
 }

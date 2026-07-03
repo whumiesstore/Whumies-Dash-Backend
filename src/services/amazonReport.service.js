@@ -5,7 +5,7 @@ import { AmazonMonthlyReport } from "../models/amazonMonthlyReport.model.js";
 import { AmazonReportOrderRow } from "../models/amazonReportOrderRow.model.js";
 import { AmazonReportPaymentRow } from "../models/amazonReportPaymentRow.model.js";
 import { ReportSkuCost } from "../models/reportSkuCost.model.js";
-import { parseUploadedFile } from "../utils/fileParser.js";
+import { parseAmazonOrdersFile, parseAmazonPaymentsFile } from "../utils/fileParser.js";
 import { parseAmazonOrdersRows } from "./amazonOrderParser.service.js";
 import { parseAmazonPaymentRows } from "./amazonPaymentParser.service.js";
 import { calculateAmazonReport } from "./reportCalculation.service.js";
@@ -104,7 +104,7 @@ export async function uploadAmazonOrdersReport({ userId, reportId, file }) {
         throw new ApiError(400, "Orders report file is required.");
     }
 
-    const rows = parseUploadedFile(file.path, file.originalname);
+    const rows = parseAmazonOrdersFile(file.path, file.originalname);
 
     const parsed = parseAmazonOrdersRows(rows, report.reportMonth);
 
@@ -336,7 +336,7 @@ export async function uploadAmazonPaymentsReport({ userId, reportId, file }) {
         new Set(orderRows.map((row) => row.orderId).filter(Boolean)),
     );
 
-    const rows = parseUploadedFile(file.path, file.originalname);
+    const rows = parseAmazonPaymentsFile(file.path, file.originalname);
 
     const parsed = parseAmazonPaymentRows(rows, report.reportMonth, orderIds);
 

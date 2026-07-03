@@ -24,16 +24,17 @@ const amazonReportPaymentRowSchema = new mongoose.Schema(
         fulfillment: { type: String, default: "" },
         orderCity: { type: String, default: "" },
         orderState: { type: String, default: "" },
+        orderPostal: { type: String, default: "" },
 
         productSales: { type: Number, default: 0 },
-        productSalesTax: { type: Number, default: 0 },
         shippingCredits: { type: Number, default: 0 },
-        shippingCreditsTax: { type: Number, default: 0 },
         giftWrapCredits: { type: Number, default: 0 },
-        giftWrapCreditsTax: { type: Number, default: 0 },
         promotionalRebates: { type: Number, default: 0 },
-        promotionalRebatesTax: { type: Number, default: 0 },
-        marketplaceWithheldTax: { type: Number, default: 0 },
+        taxWithoutTCS: { type: Number, default: 0 },
+        tcsCGST: { type: Number, default: 0 },
+        tcsSGST: { type: Number, default: 0 },
+        tcsIGST: { type: Number, default: 0 },
+        tds: { type: Number, default: 0 },
 
         sellingFees: { type: Number, default: 0 },
         fbaFees: { type: Number, default: 0 },
@@ -41,6 +42,9 @@ const amazonReportPaymentRowSchema = new mongoose.Schema(
         other: { type: Number, default: 0 },
 
         total: { type: Number, default: 0 },
+
+        transactionStatus: { type: String, default: "" },
+        transactionReleaseDate: { type: Date, default: null },
 
         rawRow: {
             type: mongoose.Schema.Types.Mixed,

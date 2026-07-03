@@ -11,7 +11,7 @@ const PAYMENT_ALIASES = {
     settlementId: ["settlement-id"],
     transactionType: ["type", "transaction-type"],
     orderId: ["order-id", "amazon-order-id", "merchant-order-id"],
-    postedDate: ["date-time", "posted-date", "posted-date-time", "date"],
+    postedDate: ["datetime", "date-time", "posted-date", "posted-date-time", "date"],
     sku: ["sku", "seller-sku"],
     description: ["description"],
     quantityPurchased: ["quantity-purchased", "quantity"],
@@ -20,20 +20,23 @@ const PAYMENT_ALIASES = {
     fulfillment: ["fulfillment"],
     orderCity: ["order-city"],
     orderState: ["order-state"],
+    orderPostal: ["order-postal"],
     productSales: ["product-sales"],
-    productSalesTax: ["product-sales-tax"],
     shippingCredits: ["shipping-credits"],
-    shippingCreditsTax: ["shipping-credits-tax"],
     giftWrapCredits: ["gift-wrap-credits"],
-    giftWrapCreditsTax: ["giftwrap-credits-tax", "gift-wrap-credits-tax"],
     promotionalRebates: ["promotional-rebates"],
-    promotionalRebatesTax: ["promotional-rebates-tax"],
-    marketplaceWithheldTax: ["marketplace-withheld-tax"],
+    taxWithoutTCS: ["total-sales-tax-liablegst-before-adjusting-tcs"],
+    tcsCGST: ["tcs-cgst"],
+    tcsSGST: ["tcs-sgst"],
+    tcsIGST: ["tcs-igst"],
+    tds: ["tds-section-194-o"],
     sellingFees: ["selling-fees"],
     fbaFees: ["fba-fees"],
     otherTransactionFees: ["other-transaction-fees"],
     other: ["other"],
     total: ["total"],
+    transactionStatus: ["transaction-status"],
+    transactionReleaseDate: ["transaction-release-date"]
 };
 
 function getRequiredColumnErrors(firstRow) {
@@ -54,6 +57,28 @@ function getRequiredColumnErrors(firstRow) {
             field: "paymentsFile",
             message: `Missing required column: ${item.label}`,
         }));
+}
+
+export function formatDateForMessage(date, timeZone = "Asia/Kolkata") {
+    if (!date) return "";
+
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(date);
+}
+
+function isUploadedPaymentRangeValid({
+    minReportDate,
+    maxReportDate,
+    expectedStartDate,
+    expectedEndDate,
+}) {
+    if (!minReportDate || !maxReportDate) return false;
+
+    return minReportDate >= expectedStartDate && maxReportDate <= expectedEndDate;
 }
 
 export function parseAmazonPaymentRows(rows, reportMonth, orderIds = []) {
@@ -82,8 +107,96 @@ export function parseAmazonPaymentRows(rows, reportMonth, orderIds = []) {
     const parsedRows = [];
     const warnings = [];
 
+    let minReportDate = null;
+    let maxReportDate = null;
+    let validDateRowCount = 0;
+    let invalidDateRowCount = 0;
+
+    /**
+     * First pass:
+     * Read date range of uploaded payment report.
+     * Do not insert/parse final rows yet.
+     */
+    rows.forEach((row) => {
+        const postedDate = parseDateValue(
+            pickValue(row, PAYMENT_ALIASES.postedDate),
+        );
+
+        if (!postedDate) {
+            invalidDateRowCount += 1;
+            return;
+        }
+
+        validDateRowCount += 1;
+
+        if (!minReportDate || postedDate < minReportDate) {
+            minReportDate = postedDate;
+        }
+
+        if (!maxReportDate || postedDate > maxReportDate) {
+            maxReportDate = postedDate;
+        }
+    });
+
+    if (!validDateRowCount) {
+        throw new ApiError(400, "Payments report validation failed", [
+            {
+                field: "paymentsFile",
+                code: "NO_VALID_PAYMENT_DATES",
+                message: "No valid dates found in payments report.",
+                selectedReportMonth: reportMonth,
+                expectedStartDate: formatDateForMessage(startDate),
+                expectedEndDate: formatDateForMessage(endDate),
+            },
+        ]);
+    }
+
+    if (
+        !isUploadedPaymentRangeValid({
+            minReportDate,
+            maxReportDate,
+            expectedStartDate: startDate,
+            expectedEndDate: endDate,
+        })
+    ) {
+        throw new ApiError(400, "Payments report validation failed", [
+            {
+                field: "paymentsFile",
+                code: "PAYMENT_DATE_RANGE_MISMATCH",
+                message: `Uploaded payments report date range ${formatDateForMessage(
+                    minReportDate,
+                )} to ${formatDateForMessage(
+                    maxReportDate,
+                )} is outside the expected payment range ${formatDateForMessage(
+                    startDate,
+                )} to ${formatDateForMessage(
+                    endDate,
+                )} for selected report month ${reportMonth}.`,
+                selectedReportMonth: reportMonth,
+                expectedStartDate: formatDateForMessage(startDate),
+                expectedEndDate: formatDateForMessage(endDate),
+                uploadedMinReportDate: formatDateForMessage(minReportDate),
+                uploadedMaxReportDate: formatDateForMessage(maxReportDate),
+            },
+        ]);
+    }
+
+    if (invalidDateRowCount) {
+        warnings.push({
+            field: "paymentsFile",
+            message: `${invalidDateRowCount} payment rows had invalid posted dates and were ignored.`,
+        });
+    }
+
+    /**
+     * Second pass:
+     * Now range is valid, parse rows.
+     * Rows with invalid dates are skipped.
+     */
     rows.forEach((row, index) => {
-        const postedDate = parseDateValue(pickValue(row, PAYMENT_ALIASES.postedDate));
+        const postedDate = parseDateValue(
+            pickValue(row, PAYMENT_ALIASES.postedDate),
+        );
 
         if (!postedDate) {
             warnings.push({
@@ -93,10 +206,13 @@ export function parseAmazonPaymentRows(rows, reportMonth, orderIds = []) {
             return;
         }
 
-        if (!isDateInsideRange(postedDate, startDate, endDate)) {
+        const totalValue = pickValue(row, PAYMENT_ALIASES.total);
+        const total = parseNumber(totalValue);
+
+        if (totalValue === "" || !Number.isFinite(total)) {
             warnings.push({
                 row: index + 2,
-                message: "Skipped row because posted date is outside expected payment range.",
+                message: "Skipped row because total is missing or invalid.",
             });
             return;
         }
@@ -120,38 +236,42 @@ export function parseAmazonPaymentRows(rows, reportMonth, orderIds = []) {
             fulfillment: String(pickValue(row, PAYMENT_ALIASES.fulfillment)).trim(),
             orderCity: String(pickValue(row, PAYMENT_ALIASES.orderCity)).trim(),
             orderState: String(pickValue(row, PAYMENT_ALIASES.orderState)).trim(),
+            orderPostal: String(pickValue(row, PAYMENT_ALIASES.orderPostal)).trim(),
+
             productSales: parseNumber(pickValue(row, PAYMENT_ALIASES.productSales)),
-            productSalesTax: parseNumber(
-                pickValue(row, PAYMENT_ALIASES.productSalesTax),
-            ),
             shippingCredits: parseNumber(
                 pickValue(row, PAYMENT_ALIASES.shippingCredits),
-            ),
-            shippingCreditsTax: parseNumber(
-                pickValue(row, PAYMENT_ALIASES.shippingCreditsTax),
             ),
             giftWrapCredits: parseNumber(
                 pickValue(row, PAYMENT_ALIASES.giftWrapCredits),
             ),
-            giftWrapCreditsTax: parseNumber(
-                pickValue(row, PAYMENT_ALIASES.giftWrapCreditsTax),
-            ),
             promotionalRebates: parseNumber(
                 pickValue(row, PAYMENT_ALIASES.promotionalRebates),
             ),
-            promotionalRebatesTax: parseNumber(
-                pickValue(row, PAYMENT_ALIASES.promotionalRebatesTax),
+
+            taxWithoutTCS: parseNumber(
+                pickValue(row, PAYMENT_ALIASES.taxWithoutTCS),
             ),
-            marketplaceWithheldTax: parseNumber(
-                pickValue(row, PAYMENT_ALIASES.marketplaceWithheldTax),
-            ),
+            tcsCGST: parseNumber(pickValue(row, PAYMENT_ALIASES.tcsCGST)),
+            tcsSGST: parseNumber(pickValue(row, PAYMENT_ALIASES.tcsSGST)),
+            tcsIGST: parseNumber(pickValue(row, PAYMENT_ALIASES.tcsIGST)),
+            tds: parseNumber(pickValue(row, PAYMENT_ALIASES.tds)),
+
             sellingFees: parseNumber(pickValue(row, PAYMENT_ALIASES.sellingFees)),
             fbaFees: parseNumber(pickValue(row, PAYMENT_ALIASES.fbaFees)),
             otherTransactionFees: parseNumber(
                 pickValue(row, PAYMENT_ALIASES.otherTransactionFees),
             ),
             other: parseNumber(pickValue(row, PAYMENT_ALIASES.other)),
-            total: parseNumber(pickValue(row, PAYMENT_ALIASES.total)),
+            total,
+
+            transactionStatus: String(
+                pickValue(row, PAYMENT_ALIASES.transactionStatus),
+            ).trim(),
+            transactionReleaseDate: parseDateValue(
+                pickValue(row, PAYMENT_ALIASES.transactionReleaseDate),
+            ),
+
             rawRow: row,
         });
     });
@@ -160,7 +280,13 @@ export function parseAmazonPaymentRows(rows, reportMonth, orderIds = []) {
         throw new ApiError(400, "Payments report validation failed", [
             {
                 field: "paymentsFile",
-                message: "No valid payment rows found in expected payment range.",
+                code: "NO_VALID_PAYMENT_ROWS",
+                message: "No valid payment rows found in payments report.",
+                selectedReportMonth: reportMonth,
+                expectedStartDate: formatDateForMessage(startDate),
+                expectedEndDate: formatDateForMessage(endDate),
+                uploadedMinReportDate: formatDateForMessage(minReportDate),
+                uploadedMaxReportDate: formatDateForMessage(maxReportDate),
             },
         ]);
     }
@@ -186,5 +312,13 @@ export function parseAmazonPaymentRows(rows, reportMonth, orderIds = []) {
         matchedOrderCount: matchedOrderIds.size,
         unmatchedOrderCount: Math.max(orderIdSet.size - matchedOrderIds.size, 0),
         validationWarnings: warnings,
+        uploadedPaymentRange: {
+            minReportDate: formatDateForMessage(minReportDate),
+            maxReportDate: formatDateForMessage(maxReportDate),
+        },
+        expectedPaymentRange: {
+            startDate: formatDateForMessage(startDate),
+            endDate: formatDateForMessage(endDate),
+        },
     };
 }
